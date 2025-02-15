@@ -1,24 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:ital,wght@0,200..800;1,200..800&display=swap');
-
 .page {
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background-color: #333333;
-}
-
-.main {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
 }
 
 .owo {
-  font-size: 5rem;
-  color: hotpink;
-  font-family: "Atkinson Hyperlegible Mono", serif;
+  font-size: 6rem;
   font-optical-sizing: auto;
   font-weight: 400;
   font-style: normal;
