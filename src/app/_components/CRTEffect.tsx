@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import './CRTEffect.css';
 
 const CRTEffect = () => {
-  const [isCRTEnabled, setIsCRTEnabled] = useState(true);
+  const [isCRTEnabled, setIsCRTEnabled] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
