@@ -3,12 +3,14 @@ import React, {useState, useEffect, useMemo} from "react";
 import styles from "./page.module.css";
 import CRTEffect from "./_components/CRTEffect";
 import MobileControls from "./_components/MobileControls";
+import {useRouter} from "next/navigation";
 
 export default function Home() {
   const [crtEffect, setCrtEffect] = useState(true);
   const [text, setText] = useState("OwO");
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout>();
   const [currentSet, setCurrentSet] = useState<keyof typeof variants>("happy");
+  const router = useRouter();
 
   const variants = useMemo(() => ({
     happy: ["OwO", "UwU", "owo", "uwu", ">w<", "^w^"],
@@ -48,12 +50,19 @@ export default function Home() {
       if (event.key.toLowerCase() === "c") {
         toggleCrtEffect();
       }
+      if (event.key.toLowerCase() === "r") {
+        const randomVariation = variants[currentSet][Math.floor(Math.random() * variants[currentSet].length)];
+        setText(randomVariation);
+      }
+      if (event.key === "3") {
+        router.push("/3d");
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [switchVariation, toggleCrtEffect]);
+  }, [switchVariation, toggleCrtEffect, router, variants, currentSet]);
 
   const isMobile = typeof document !== 'undefined' && 'ontouchstart' in document.documentElement;
 

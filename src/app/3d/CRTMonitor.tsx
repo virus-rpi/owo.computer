@@ -1,18 +1,8 @@
 import { useGLTF, Html } from '@react-three/drei';
-import { useEffect } from 'react';
 import styles from './page.module.css';
 
 export default function CRTMonitor({ position }: Readonly<{ position: number[] }>) {
   const { scene } = useGLTF('/crt_monitor.glb');
-
-  useEffect(() => {
-      setTimeout(() => {
-        const htmlElement = document.querySelector(`.${styles.crtScreen}`);
-        if (htmlElement) {
-          htmlElement.style.transform = 'translateZ(-0.005px)';
-        }
-      }, 0);
-  }, []);
 
   return (
     <primitive object={scene} position={position} rotation={[0, Math.PI, 0]}>

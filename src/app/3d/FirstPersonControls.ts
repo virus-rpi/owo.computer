@@ -3,9 +3,11 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useKeyboardControls } from '@react-three/drei';
 import { Vector2, Vector3 } from 'three';
 import { useEffect, useRef } from 'react';
+import gsap from 'gsap';
 
 export default function FirstPersonControls() {
   const { camera, gl } = useThree();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [subscribeKeys, getKeyboardState] = useKeyboardControls();
 
   const isDragging = useRef(false);
@@ -13,6 +15,22 @@ export default function FirstPersonControls() {
   const sensitivity = 0.002;
 
   useEffect(() => {
+    const initialPosition = new Vector3(0, 2.9, 4);
+    const finalPosition = new Vector3(0, 3, 10);
+
+    camera.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+    camera.rotation.set(0, 0, 0);
+
+    setTimeout(() => {
+      gsap.to(camera.position, {
+        x: finalPosition.x,
+        y: finalPosition.y,
+        z: finalPosition.z,
+        duration: 1,
+        ease: "power1.inOut"
+      });
+    }, 1000);
+
     const handleMouseDown = (event: { clientX: number; clientY: number; }) => {
       isDragging.current = true;
       previousMouse.current.set(event.clientX, event.clientY);
