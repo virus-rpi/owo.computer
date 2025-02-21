@@ -55,7 +55,7 @@ export default function Home() {
     };
   }, [switchVariation, toggleCrtEffect]);
 
-  const isMobile = 'ontouchstart' in document.documentElement;
+  const isMobile = typeof document !== 'undefined' && 'ontouchstart' in document.documentElement;
 
   return (
     <>
