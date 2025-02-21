@@ -1,8 +1,10 @@
 "use client";
 import React, {useState, useEffect, useMemo} from "react";
 import styles from "./page.module.css";
+import CRTEffect from "./_components/CRTEffect";
 
 export default function Home() {
+  const [crtEffect, setCrtEffect] = useState(true);
   const [text, setText] = useState("OwO");
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout>();
   const [currentSet, setCurrentSet] = useState<keyof typeof variants>("happy");
@@ -34,17 +36,22 @@ export default function Home() {
       setText(randomVariation);
   }
     const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "s") {
+    if (event.key.toLowerCase() === "v") {
       switchVariation();
+    }
+    if (event.key.toLowerCase() === "c") {
+      setCrtEffect(!crtEffect);
     }
   };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [variants, currentSet]);
+  }, [variants, currentSet, crtEffect]);
 
   return (
+    <>
+      {crtEffect && <CRTEffect />}
     <div className={styles.page}>
       <main>
         <div
@@ -58,5 +65,6 @@ export default function Home() {
         </div>
       </main>
     </div>
+    </>
   );
 }
