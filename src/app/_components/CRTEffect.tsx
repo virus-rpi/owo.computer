@@ -20,9 +20,7 @@ const CRTEffect = () => {
   }, [isCRTEnabled]);
 
 
-  const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
-
-  if (isFirefox || !isCRTEnabled) {
+  if ( !isCRTEnabled) {
     return null;
   }
 
@@ -41,6 +39,7 @@ const CRTEffect = () => {
       <div className="crt-curvature"></div>
       <div className="crt-flicker"></div>
       <div className="crt-noise"></div>
+      <div className="crt-curvature-cover"></div>
     </div>
       </>
   );

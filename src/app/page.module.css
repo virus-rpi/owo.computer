@@ -6,8 +6,12 @@
 }
 
 .owo {
-  font-size: 25rem;
+  font-size: 12rem;
   font-optical-sizing: auto;
   font-weight: 400;
   font-style: normal;
+
+  @media (max-width: 800px) {
+    font-size: 8rem;
+  }
 }
