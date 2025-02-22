@@ -65,6 +65,19 @@ function playBeep(audioContext: AudioContext) {
   return oscillator;
 }
 
+function playHum(audioContext: AudioContext) {
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(60, audioContext.currentTime);
+      gainNode.gain.setValueAtTime(0.05, audioContext.currentTime);
+
+  oscillator.connect(gainNode).connect(audioContext.destination);
+  oscillator.start();
+
+  return oscillator;
+}
+
 function fixAudioIfNeeded(audioContext: AudioContext) {
   if (!audioContext) return;
   const intervalId = setInterval(() => {
@@ -108,6 +121,7 @@ export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: s
 
      playPinkNoise(audioContext);
       playBeep(audioContext);
+      playHum(audioContext);
     }
 
     return () => {
