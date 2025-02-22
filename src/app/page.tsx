@@ -63,6 +63,9 @@ export default function Home() {
       if (event.key === "3") {
         router.push("/3d");
       }
+      if (event.key === "t") {
+        router.push("/terminal");
+      }
 
       if (event.key.toLowerCase() === "s") {
         toggleSound()
