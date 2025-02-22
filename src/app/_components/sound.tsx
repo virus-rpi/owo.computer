@@ -65,14 +65,32 @@ function playBeep(audioContext: AudioContext) {
   return oscillator;
 }
 
+function fixAudioIfNeeded(audioContext: AudioContext) {
+  if (!audioContext) return;
+  const intervalId = setInterval(() => {
+    if (audioContext.state === "suspended") {
+      audioContext.resume().catch(err =>
+        console.error("Failed to resume audio context", err)
+      );
+    } else {
+      clearInterval(intervalId);
+    }
+  }, 50);
+}
+
 export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: string }) {
   const audioContextRef = useRef<AudioContext | null>(null);
+  const initalLoad = useRef(true);
 
     useEffect(() => {
         if (!audioContextRef.current) {
             audioContextRef.current = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
         }
-        const audioContext = audioContextRef.current;
+        const audioContext = audioContextRef.current
+        ;if (initalLoad.current) {
+        initalLoad.current = false;
+        return;
+      }
         playPlopSound(audioContext)
     }, [text])
 
@@ -80,6 +98,11 @@ export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: s
     if (crtEffect) {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        const gainNode = audioContextRef.current.createGain();
+        gainNode.gain.setValueAtTime(0, audioContextRef.current.currentTime);
+        gainNode.gain.setValueAtTime(0, audioContextRef.current.currentTime + 1);
+        gainNode.connect(audioContextRef.current.destination);
+        gainNode.gain.exponentialRampToValueAtTime(1, audioContextRef.current.currentTime + 2);
       }
       const audioContext = audioContextRef.current;
 
@@ -92,8 +115,13 @@ export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: s
         audioContextRef.current.close().then();
         audioContextRef.current = null;
       }
-    };
+    }
   }, [crtEffect]);
+
+    useEffect(() => {
+      if (!audioContextRef.current) return;
+      fixAudioIfNeeded(audioContextRef.current);
+    }, [audioContextRef.current]);
 
   return null;
 }
