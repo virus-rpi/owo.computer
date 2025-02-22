@@ -4,7 +4,7 @@ import styles from "./page.module.css";
 import CRTEffect from "./_components/CRTEffect";
 import MobileControls from "./_components/MobileControls";
 import {useRouter} from "next/navigation";
-import Sound from "./_components/sound";
+import Sound from "./_components/Sound";
 
 export default function Home() {
   const [crtEffect, setCrtEffect] = useState(true);

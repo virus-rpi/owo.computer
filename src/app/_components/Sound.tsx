@@ -82,16 +82,26 @@ function playHum(audioContext: AudioContext) {
 function fixAudioIfNeeded(audioContext: AudioContext, setAudioWorking: (working: boolean) => void) {
   if (!audioContext) return;
   const intervalId = setInterval(() => {
+    if (audioContext.state === "closed") {
+      clearInterval(intervalId);
+      return;
+    }
     if (audioContext.state === "suspended") {
-      audioContext.resume().catch(err =>
-        console.error("Failed to resume audio context", err)
-      ).then(() => setAudioWorking(true));
-    } else {
+      audioContext
+        .resume()
+        .then(() => {
+          setAudioWorking(true);
+          clearInterval(intervalId);
+        })
+        .catch((err) => {
+          console.error("Failed to resume audio context", err);
+        });
+    } else if (audioContext.state === "running") {
+      setAudioWorking(true);
       clearInterval(intervalId);
     }
   }, 50);
 }
-
 export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: string }) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const initalLoad = useRef(true);
