@@ -1,6 +1,6 @@
 import { useGLTF, Html } from '@react-three/drei';
 import styles from './page.module.css';
-import Sound from "@/app/_components/sound";
+import Sound from "@/app/_components/Sound";
 
 export default function CRTMonitor({ position }: Readonly<{ position: number[] }>) {
   const { scene } = useGLTF('/crt_monitor.glb');
