@@ -4,9 +4,11 @@ import styles from "./page.module.css";
 import CRTEffect from "./_components/CRTEffect";
 import MobileControls from "./_components/MobileControls";
 import {useRouter} from "next/navigation";
+import Sound from "./_components/sound";
 
 export default function Home() {
   const [crtEffect, setCrtEffect] = useState(true);
+  const [sound, setSound] = useState(true);
   const [text, setText] = useState("OwO");
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout>();
   const [currentSet, setCurrentSet] = useState<keyof typeof variants>("happy");
@@ -42,6 +44,10 @@ export default function Home() {
     setCrtEffect(!crtEffect);
   };
 
+  const toggleSound = () => {
+    setSound(!sound)
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === "v") {
@@ -57,12 +63,16 @@ export default function Home() {
       if (event.key === "3") {
         router.push("/3d");
       }
+
+      if (event.key.toLowerCase() === "s") {
+        toggleSound()
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [switchVariation, toggleCrtEffect, router, variants, currentSet]);
+  }, [switchVariation, toggleCrtEffect, toggleSound, router, variants, currentSet]);
 
   const isMobile = typeof document !== 'undefined' && 'ontouchstart' in document.documentElement;
 
@@ -82,7 +92,8 @@ export default function Home() {
           </div>
         </main>
       </div>
-      {isMobile && <MobileControls onSwitchVariation={switchVariation} onToggleCrtEffect={toggleCrtEffect} /> }
+      {isMobile && <MobileControls onSwitchVariation={switchVariation} onToggleCrtEffect={toggleCrtEffect} onToggleSound={toggleSound} /> }
+      {sound && <Sound crtEffect={crtEffect} />}
     </>
   );
 }
