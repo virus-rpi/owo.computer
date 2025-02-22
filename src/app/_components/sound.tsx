@@ -137,7 +137,7 @@ export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: s
     useEffect(() => {
       if (!audioContextRef.current) return;
       fixAudioIfNeeded(audioContextRef.current, setAudioWorking);
-    }, [audioContextRef.current]);
+    }, []);
 
   return audioWorking ? <Lofi /> : null;
 }

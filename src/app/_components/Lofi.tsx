@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 
 declare global {
   interface Window {
-    YT: any;
+    YT: typeof YT;
     onYouTubeIframeAPIReady: () => void;
   }
 }
@@ -11,7 +11,7 @@ const Lofi = () => {
   const playerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onPlayerReady = (event: any) => {
+    const onPlayerReady = (event: YT.PlayerEvent) => {
       event.target.setVolume(20);
       event.target.playVideo();
     };

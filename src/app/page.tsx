@@ -1,5 +1,5 @@
 "use client";
-import React, {useState, useEffect, useMemo} from "react";
+import React, {useState, useEffect, useMemo, useCallback} from "react";
 import styles from "./page.module.css";
 import CRTEffect from "./_components/CRTEffect";
 import MobileControls from "./_components/MobileControls";
@@ -31,22 +31,22 @@ export default function Home() {
     clearInterval(intervalId);
   };
 
-  const switchVariation = () => {
+  const switchVariation = useCallback(() => {
     const keys = Object.keys(variants) as Array<keyof typeof variants>;
     const currentIndex = keys.indexOf(currentSet);
     const nextIndex = (currentIndex + 1) % keys.length;
     setCurrentSet(keys[nextIndex]);
     const randomVariation = variants[keys[nextIndex]][Math.floor(Math.random() * variants[keys[nextIndex]].length)];
     setText(randomVariation);
-  };
+  }, [currentSet, variants]);
 
-  const toggleCrtEffect = () => {
+  const toggleCrtEffect = useCallback(() => {
     setCrtEffect(!crtEffect);
-  };
+  }, [crtEffect]);
 
-  const toggleSound = () => {
+  const toggleSound = useCallback(() => {
     setSound(!sound)
-  }
+  }, [sound])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
