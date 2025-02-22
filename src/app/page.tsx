@@ -93,7 +93,7 @@ export default function Home() {
         </main>
       </div>
       {isMobile && <MobileControls onSwitchVariation={switchVariation} onToggleCrtEffect={toggleCrtEffect} onToggleSound={toggleSound} /> }
-      {sound && <Sound crtEffect={crtEffect} />}
+      {sound && <Sound crtEffect={crtEffect} text={text} />}
     </>
   );
 }
