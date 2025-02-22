@@ -1,0 +1,2200 @@
+import * as Tone from "tone";
+
+type TransportCallback = (time: number) => void;
+
+function updateVol(vol: number){
+  Tone.Master.volume.value = 30*Math.log10(vol/100);
+}
+
+function play() {
+  Tone.start().then();
+  if (Tone.Transport.state != 'stopped'){
+    stop();
+  } else if (!awaitingLoad){
+    onStart();
+  }
+}
+
+let awaitingLoad = false;
+const loader = document.getElementById("loader");
+const cacheAvailable = 'caches' in self;
+
+function startPlaying(song){
+  if (!checkLoaded(song)){
+    awaitingLoad = true;
+    loader.style.display = 'block';
+    setTimeout(function() {startPlaying(song)}, 50);
+  } else {
+    awaitingLoad = false;
+    loader.style.display = 'none';
+    song.transport.start();
+  }
+}
+
+function checkLoaded(song){
+  const sounds = [kick.sampler,snare.sampler,hat.sampler, song.chordal,song.bass,song.lead,song.ambience,song.vinyl];
+  for (const element of sounds) {
+    if (!element) {
+      return false;
+    }
+    if (element.loaded === false) { return false; }
+  }
+  return true;
+}
+
+function getAudioBufferFromFilepath(cache, filepath){
+  return new Promise(resolve => {
+
+    if (cache){
+      cache.match(filepath)
+        .then((response) => {
+          if (response === undefined) {
+            cache.add(filepath).then(function() {
+              cache.match(filepath)
+                .then((newresponse) => newresponse.arrayBuffer())
+                  .then((arrayBuffer) => Tone.getContext().decodeAudioData(arrayBuffer))
+                    .then((audioBuffer) => {
+                      resolve(audioBuffer);
+                    });
+                  });
+          } else {
+            response.arrayBuffer()
+              .then((arrayBuffer) => Tone.getContext().decodeAudioData(arrayBuffer))
+                .then((audioBuffer) => {
+                  resolve(audioBuffer);
+                });
+          }
+      });
+    } else {
+      fetch(filepath)
+        .then((response) => response.arrayBuffer())
+          .then((arrayBuffer) => Tone.getContext().decodeAudioData(arrayBuffer))
+            .then((audioBuffer) => {
+              resolve(audioBuffer);
+            });
+    }
+  });
+}
+
+function checkBuffersLoaded(map: { [note: string]: any}){ // Returns true if every value of the map has been overwritten with an audioBuffer
+  for (const note in map){
+    if (typeof map[note] !== 'object'){
+      return false;
+    }
+  }
+  return true;
+}
+
+// Returns a random float between min and max
+function between(min: number, max: number){
+  const range = max - min;
+  return min + Math.random()*range;
+}
+
+// returns a boolean. 'prob' is between 0 and 1. Higher is more likely to return True
+function chance(prob){
+  if (prob <= 0) { return false; }
+  return Boolean(Math.random() < prob);
+}
+
+// Chooses one item from the given array. Optional 'probs' array specifies the likelyhood of each corresponding array item
+function choose<T>(arr: T[], probs?: number[]) { {
+  let i;
+  let total = 0;
+  let invalid = true;
+  if (probs && probs.length == arr.length){
+    invalid = false;
+    probs.forEach(function(prob){
+      if (prob >= 0){
+        total += prob;
+      } else {
+        invalid = true;
+      }
+    });
+  }
+  if (invalid || total == 0) {
+    probs = [];
+    for (i = 0; i < arr.length; i++){
+      probs.push(1/arr.length);
+    }
+  } else {
+    probs = probs.map(x => x * 1/total);
+  }
+
+  const rand = Math.random();
+  let cumulativeProb = 0;
+  for (i = 0; i < arr.length; i++){
+    cumulativeProb += probs[i];
+    if (cumulativeProb > rand){
+      return arr[i];
+    }
+  }
+}
+
+function chooseSome(...items: Array<[number | ((now: any, eighths: any, song: any) => void), number]>) {
+  const arr = [];
+  for (const element of items) {
+    const item = element;
+    if (chance(item[1])){
+      arr.push(item[0]);
+    }
+  }
+  return arr;
+}
+
+
+const rt = {
+    C: 0,
+    Cs: 1,
+    D: 2,
+    Ds: 3,
+    E: 4,
+    F: 5,
+    Fs: 6,
+    G: 7,
+    Gs: 8,
+    A: 9,
+    As: 10,
+    B: 11
+}
+
+const tp = {
+    Triad: [0,4,7], // Triad
+    FirstInv: [4,7,0], // 3rd in base
+    SecondInv: [7,0,4], // 5th in base
+    Maj6th: [0,4,7,9], // Major 6th
+    Dom7th: [0,4,7,10], // 7th
+    Dom7thThirdInv: [10,0,4,7], // Dom 7th, 7th in base (C7/Bb)
+    Maj7th: [0,4,7,11], // Major 7th
+    Maj7thThirdInv: [11,0,4,7], // Major 7th, 7th in base (Cmaj7/B)
+    Add9: [0,4,7,2], // Add9
+    Add9ThirdInv: [2,4,7,0], // Add9, 9th in base (C/D)
+
+    Sus2: [0,2,7], // Sus2
+    Sus4: [0,5,7], // Sus4
+    Sus42: [0,2,5,7], // Sus42
+
+    MinTriad: [0,3,7], // Minor Triad
+    MinFirstInv: [3,7,0], // 3rd in base
+    MinSecondInv: [7,0,3], // 5th in base
+    Min6th: [0,3,7,9], // Minor triad with 6th
+    Min7th: [0,3,7,10], // Minor 7th
+    Min7thThirdInv: [10,0,3,7], // Minor 7th, 7th in base (Amin7/G)
+    MinAdd9: [0,3,7,2], // Add9
+    MinAdd9ThirdInv: [2,3,7,0], // Add9, 9th in base (Cmin/D)
+
+    Maj7th9th: [0,4,7,11,2], // Maj 9th
+    Min7th9th: [0,3,7,10,2],
+    Dom7th9th: [0,4,7,10,2], // Dom 7th 9th
+
+    Dom7thFlat9: [0,4,7,10,1], // 7th + Flat 9
+    Dim: [0,3,6,9], // Diminished 7th
+    HalfDim: [0,3,6,10]
+}
+
+function connectKit(){
+  hat.connect(filter);
+  kick.connect(filter);
+  snare.connect(filter);
+}
+
+function chooseVinyl(){
+  return new Promise(resolve => {
+    const index = Math.floor(between(0,vinyls.length));
+    vinyls[index].connect(gain)
+    .then(player =>  {
+      player.playbackRate = between(0.7,1);
+      player.volume.value = between(-19,-16);
+      resolve(player);
+    });
+  });
+}
+
+function chooseAmbience(){
+  return new Promise(resolve => {
+    const index = Math.floor(between(0,ambiences.length));
+    ambiences[index].connect(gain)
+    .then(player => {
+      player.playbackRate = between(0.9,1);
+      player.volume.value = between(-18,-14);
+      resolve(player);
+    });
+  });
+}
+
+function chooseChordal(){
+  const chordal = choose([rhodes1, rhodes0, piano0, piano1, kalimba, synth0, marimba]);
+
+  return chordal.connect(chordalFilter);
+}
+
+function chooseLead(){
+  const lead = choose([rhodes1, rhodes0, piano1, kalimba, synth0, dantranh, marimba, violinpizz, guitar, uke]);
+
+  return lead.connect(leadFilter);
+}
+
+function chooseBass(ducking, bpm){
+    const bass = choose(getBassInstrumentOptions(ducking, bpm));
+    // If it hasn't been created yet, create the Tone Sampler
+    return bass.connect(bassGain);
+}
+
+function getBassInstrumentOptions(bassDucking, bpm){
+  let bassOptions = [];
+  if (bassDucking) {
+    bassOptions = [bass2, rhodes1, bass3];
+  } else {
+    bassOptions = bpm < 75 ? [bass1, bass3] : [bass0, bass1, bass3];
+  }
+  return bassOptions;
+}
+
+
+// Returns prog in format: [[0,4,7], [5,9,0], [0,4,7], [5,9,0]]
+function getProg(key){
+
+  let i;
+  const progType = choose([0,1,2,3,4,5,6],[1,3,1,1,0.5,1,1])
+  const chords = []
+
+  switch (progType){
+    case 0: // I IV I IV (or IV I IV I)
+      for (i = 0; i < 2; i++){
+        chords.push(choose([ // I
+          [rt.C, tp.Triad],
+          [rt.C, tp.FirstInv],
+          [rt.C, tp.SecondInv],
+          [rt.C, tp.Maj7th],
+          // [rt.C, tp.Maj7th9th],
+          [rt.C, tp.Maj6th],
+        ]));
+
+        chords.push(choose([ // IV or V
+          [rt.F, tp.Triad],
+          [rt.F, tp.FirstInv],
+          [rt.F, tp.SecondInv],
+          [rt.F, tp.Maj7th],
+          [rt.F, tp.Maj7th9th],
+          [rt.F, tp.Maj6th],
+          [rt.F, tp.Add9],
+
+          [rt.G, tp.Triad],
+          [rt.G, tp.FirstInv],
+          [rt.G, tp.SecondInv],
+          [rt.G, tp.Maj6th],
+          [rt.G, tp.Add9],
+        ]));
+      }
+      // Maybe change the order
+      if (chance(0.5)){
+        let first = chords.shift();
+        chords.push(first);
+      }
+    break;
+    case 1: // ii V I
+      chords.push(choose([ // ii
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+
+        [rt.F, tp.Triad],
+        [rt.F, tp.FirstInv],
+        [rt.F, tp.SecondInv],
+        [rt.F, tp.Maj7th],
+        [rt.F, tp.Maj7th9th],
+        [rt.F, tp.Maj6th],
+        [rt.F, tp.Add9],
+      ]));
+
+      chords.push(choose([ // V or iii or Dim
+        [rt.G, tp.Triad],
+        [rt.G, tp.FirstInv],
+        [rt.G, tp.SecondInv],
+        [rt.G, tp.Maj6th],
+        [rt.G, tp.Dom7th],
+        [rt.G, tp.Dom7th9th],
+        [rt.G, tp.Add9],
+
+        [rt.D, tp.Dim],
+        [rt.D, tp.HalfDim],
+        [rt.F, tp.Dim],
+        [rt.F, tp.HalfDim],
+
+        [rt.E, tp.MinTriad],
+        [rt.E, tp.MinFirstInv],
+        [rt.E, tp.MinSecondInv],
+        [rt.E, tp.Min7th],
+        [rt.E, tp.Min7th9th],
+        [rt.E, tp.Min6th],
+      ]));
+
+      for (i = 0; i < choose([1,2]); i++){
+        chords.push(choose([ // I
+          [rt.C, tp.Triad],
+          [rt.C, tp.FirstInv],
+          [rt.C, tp.SecondInv],
+          [rt.C, tp.Maj7th],
+          [rt.C, tp.Maj7th9th],
+          [rt.C, tp.Maj6th],
+        ]));
+      }
+    break;
+    case 2: // IV ii I
+      chords.push(choose([ // IV
+        [rt.F, tp.Triad],
+        [rt.F, tp.FirstInv],
+        [rt.F, tp.SecondInv],
+        [rt.F, tp.Maj7th],
+        [rt.F, tp.Maj7th9th],
+        [rt.F, tp.Maj6th],
+        [rt.F, tp.Add9],
+      ]));
+
+      chords.push(choose([ // ii
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+      ]));
+
+      for (i = 0; i < choose([1,2]); i++){
+        chords.push(choose([ // I
+          [rt.C, tp.Triad],
+          [rt.C, tp.FirstInv],
+          [rt.C, tp.SecondInv],
+          [rt.C, tp.Maj7th],
+          [rt.C, tp.Maj7th9th],
+          [rt.C, tp.Maj6th],
+        ]));
+      }
+    break;
+    case 3: // IV I ii I
+      chords.push(choose([ // IV
+        [rt.F, tp.Triad],
+        [rt.F, tp.FirstInv],
+        [rt.F, tp.SecondInv],
+        [rt.F, tp.Maj7th],
+        [rt.F, tp.Maj7th9th],
+        [rt.F, tp.Maj6th],
+        [rt.F, tp.Add9],
+      ]));
+
+      chords.push(choose([ // I
+        [rt.C, tp.Triad],
+        [rt.C, tp.FirstInv],
+        [rt.C, tp.SecondInv],
+        [rt.C, tp.Maj7th],
+        [rt.C, tp.Maj7th9th],
+        [rt.C, tp.Maj6th],
+      ]));
+
+      chords.push(choose([ // ii
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+      ]));
+
+      chords.push(choose([ // I
+        [rt.C, tp.Triad],
+        [rt.C, tp.FirstInv],
+        [rt.C, tp.SecondInv],
+        [rt.C, tp.Maj7th],
+        [rt.C, tp.Maj7th9th],
+        [rt.C, tp.Maj6th],
+      ]));
+
+      // Maybe change the order
+      if (chance(0.25)){
+        first = chords.shift();
+        chords.push(first);
+      }
+    break;
+    case 4: // I iii ii iii (or I V ii V etc)
+      chords.push(choose([ // I
+        [rt.C, tp.Triad],
+        [rt.C, tp.FirstInv],
+        [rt.C, tp.SecondInv],
+        [rt.C, tp.Maj7th],
+        [rt.C, tp.Maj7th9th],
+        [rt.C, tp.Maj6th],
+      ]));
+
+      chords.push(choose([ // iii
+        [rt.E, tp.MinTriad],
+        [rt.E, tp.MinFirstInv],
+        [rt.E, tp.MinSecondInv],
+        [rt.E, tp.Min7th],
+        [rt.E, tp.Min7th9th],
+        [rt.E, tp.Min6th],
+
+        [rt.G, tp.Triad],
+        [rt.G, tp.FirstInv],
+        [rt.G, tp.SecondInv],
+        [rt.G, tp.Maj6th],
+      ]));
+
+      chords.push(choose([ // ii
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+      ]));
+
+      chords.push(choose([ // iii
+        [rt.E, tp.MinTriad],
+        [rt.E, tp.MinFirstInv],
+        [rt.E, tp.MinSecondInv],
+        [rt.E, tp.Min7th],
+        [rt.E, tp.Min7th9th],
+        [rt.E, tp.Min6th],
+
+        [rt.G, tp.Triad],
+        [rt.G, tp.FirstInv],
+        [rt.G, tp.SecondInv],
+        [rt.G, tp.Maj6th],
+      ]));
+
+      // Maybe change the order
+      if (chance(0.5)){
+        first = chords.shift();
+        chords.push(first);
+      }
+    break;
+    case 5: // IV (ii or iii) vi
+      chords.push(choose([ // I
+        [rt.F, tp.Triad],
+        [rt.F, tp.FirstInv],
+        [rt.F, tp.SecondInv],
+        [rt.F, tp.Maj7th],
+        [rt.F, tp.Maj6th],
+        [rt.F, tp.Add9],
+      ]));
+
+      chords.push(choose([ // ii or iii or Dim
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+
+        [rt.D, tp.Dim],
+        [rt.D, tp.HalfDim],
+
+        [rt.E, tp.MinTriad],
+        [rt.E, tp.MinFirstInv],
+        [rt.E, tp.MinSecondInv],
+        [rt.E, tp.Min7th],
+        [rt.E, tp.Min7th9th],
+        [rt.E, tp.Min6th],
+
+        [rt.F, tp.Dim],
+        [rt.F, tp.HalfDim],
+      ]));
+
+      chords.push(choose([ // vi
+        [rt.A, tp.MinTriad],
+        [rt.A, tp.MinFirstInv],
+        [rt.A, tp.MinSecondInv],
+        [rt.A, tp.Min7th],
+      ]));
+    break;
+    case 6: // (IV or ii) (Dim or V) iii vi
+      chords.push(choose([ // I
+        [rt.F, tp.Triad],
+        [rt.F, tp.FirstInv],
+        [rt.F, tp.SecondInv],
+        [rt.F, tp.Maj7th],
+        [rt.F, tp.Maj6th],
+        [rt.F, tp.Add9],
+
+        [rt.D, tp.MinTriad],
+        [rt.D, tp.MinFirstInv],
+        [rt.D, tp.MinSecondInv],
+        [rt.D, tp.Min7th],
+        [rt.D, tp.Min7th9th],
+        [rt.D, tp.Min6th],
+      ]));
+
+      if (chance(0.4)){
+        chords.push(choose([ // Dim or V
+          [rt.G, tp.Triad],
+          [rt.G, tp.FirstInv],
+          [rt.G, tp.SecondInv],
+          [rt.G, tp.Maj6th],
+          [rt.G, tp.Dom7th],
+          [rt.G, tp.Dom7th9th],
+          [rt.G, tp.Add9],
+        ]));
+        chords.push(choose([ // iii
+          [rt.E, tp.MinTriad],
+          [rt.E, tp.MinFirstInv],
+          [rt.E, tp.MinSecondInv],
+          [rt.E, tp.Min7th],
+          [rt.E, tp.Min7th9th],
+          [rt.E, tp.Min6th],
+        ]));
+      } else {
+        chords.push(choose([ // Dim or V
+          [rt.D, tp.Dim],
+          [rt.D, tp.HalfDim],
+          [rt.F, tp.Dim],
+          [rt.F, tp.HalfDim]
+        ]));
+        if (chance(0.5)) {
+          chords.push(choose([ // iii
+            [rt.E, tp.MinTriad],
+            [rt.E, tp.MinFirstInv],
+            [rt.E, tp.MinSecondInv],
+            [rt.E, tp.Min7th],
+            [rt.E, tp.Min7th9th],
+            [rt.E, tp.Min6th],
+          ]));
+        }
+      }
+
+      chords.push(choose([ // vi
+        [rt.A, tp.MinTriad],
+        [rt.A, tp.MinFirstInv],
+        [rt.A, tp.MinSecondInv],
+        [rt.A, tp.Min7th],
+      ]));
+    break;
+  }
+  for (i = 0; i < chords.length; i++){
+    let root = chords[i][0];
+    const notes = chords[i][1];
+    chords[i] = notes.map(x => (x+root+key)%12);
+  }
+  return chords;
+}
+
+function getBassSimple(prog, progRhythm, halfspeed){
+  const notes = prog.map(x => Tone.Frequency(x[0]+36,'midi'));
+  const bassline = [];
+  const eighths = halfspeed ? 32 : 16;
+  for (var i = 0; i < eighths; i++) {
+    bassline.push(0);
+  }
+  let pos = 0;
+  for (var i = 0; i < progRhythm.length; i++) {
+    bassline[pos] = [notes[i], progRhythm[i]];
+    pos += progRhythm[i].toSeconds() / Tone.Time('8n').toSeconds();
+  }
+  return bassline;
+}
+
+function getBassRhythmic(prog, progRhythm, halfspeed){
+  let j;
+  let i;
+  const notes = prog.map((x: number[]) => Tone.Frequency(x[0]+36,'midi'));
+
+  // find the lowest and highest bass notes
+  let low = 0;
+  let high = 0
+  for (i = 1; i < notes.length; i++){
+    if (notes[i].toMidi() < notes[low].toMidi()) {
+      low = i;
+    }
+    if (notes[i].toMidi() > notes[high].toMidi()) {
+      high = i;
+    }
+  }
+
+  // Decide whether the lowest bass note should be transposed up, or the highest note transposed down
+  let transposeUp = true;
+  if (notes[high].toMidi() > 45) {
+    transposeUp = false;
+  }
+
+  const bassline = [];
+
+  for (i = 0; i < progRhythm.length; i++){
+    const chordEighths = Math.round(progRhythm[i].toSeconds() / Tone.Time('8n').toSeconds());
+    let pos = 0;
+    let notePlayed = false;
+    while (pos < chordEighths){
+      let dur = choose([1,2,3,4,6,8],[0.5,1.5,0.5,1,0.5,0.5]);
+      if (chance(0.7) || Boolean(!notePlayed && (chordEighths-dur) < 3)){ // Trigger note
+        notePlayed = true;
+        dur = choose([1,2,3,4,6,8],[0.5,1.5,0.5,1,0.5,0.5]);
+        dur = dur > (chordEighths - pos) ? chordEighths - pos : dur;
+        let note = notes[i];
+        if (i == low && transposeUp){
+          if (note.toMidi() < 38 && chance(0.5)) { note = note.transpose(12); }
+        } else if (i == high && !transposeUp){
+          if (chance(0.5)) { note = note.transpose(-12); }
+        }
+        bassline.push([note, Tone.Time(dur*Tone.Time('8n').toSeconds())]);
+        for (j = 0; j < dur-1; j++){
+          bassline.push(null);
+        }
+      } else { // rest
+        dur = chordEighths - pos > 1 ? choose([1,2]) : 1;
+        for (j = 0; j < dur; j++){
+          bassline.push(null);
+        }
+      }
+      pos += dur;
+    }
+  }
+  return bassline;
+}
+
+function getProgVoiced(prog, progRhythm, halfspeed){
+  const voicings = getVoicings(prog);
+  const progVoiced = [];
+  const eighths = halfspeed ? 32 : 16;
+  for (var i = 0; i < eighths; i++) {
+    progVoiced.push(0);
+  }
+  let pos = 0;
+  for (var i = 0; i < progRhythm.length; i++) {
+    progVoiced[pos] = [voicings[i], progRhythm[i]];
+    pos += Math.round(progRhythm[i].toSeconds() / Tone.Time('8n').toSeconds());
+  }
+  return progVoiced;
+}
+
+function getVoicings(originalProg){
+  // Make clone of prog, so we don't update the original song.prog
+  const newProg = [];
+  for (const element of originalProg) {
+    newProg.push([...element]);
+  }
+
+  const maxSpacing = Math.floor(between(16,28));
+  const spacer = Math.floor(maxSpacing/8);
+
+  // if the chord only has three notes, add the octave above the lowest note
+  for (var i = 0; i < newProg.length; i++){
+    if (newProg[i].length == 3){
+      newProg[i].push(newProg[i][0]+12);
+    }
+  }
+
+  for (var i = 0; i < newProg.length; i++){
+
+    // Start by spacing out the voicing
+    let spaced = false;
+    while (!spaced) {
+      spaced = true;
+
+      // Sort the chord notes ascending
+      newProg[i].sort(function(a, b) {
+        return a - b;
+      });
+
+      for (var j = 1; j < newProg[i].length; j++){
+        if (newProg[i][j] - newProg[i][j-1] < spacer){
+          newProg[i][j] += 12;
+          spaced = false;
+        }
+      }
+    }
+
+    // Now compress it if it's total range is > maxSpacing
+    let compressed = false;
+    while (!compressed){
+      compressed = true;
+      for (var j = 1; j < newProg[i].length; j++) {
+        if (newProg[i][j] - newProg[i][0] > maxSpacing) {
+          newProg[i][j] -= 12;
+          compressed = false;
+        }
+      }
+    }
+  }
+  return newProg.map(x => x.map(y => Tone.Frequency(y+60,'midi')));
+}
+
+function getProgRhythm(numChords, halfspeed) {
+  const double = [
+    ['2n','2n'],
+    ['4n','2n.'],
+    ['2n.','4n']
+  ]
+
+  const triple = [
+    ['2n','4n','4n'],
+    ['4n','2n','4n'],
+  ]
+
+  if (numChords == 3){
+    const doub = choose(double, [0.6,0.2,0.2]);
+    var rhythm = choose([
+      ['1m'].concat(doub),
+      doub.concat(['1m'])
+    ])
+  } else if (numChords == 4){
+    var rhythm = choose([
+      ['1m'].concat(choose(triple)),
+      choose(triple).concat(['1m']),
+      choose(double,[0.6,0.2,0.2]).concat(choose(double,[0.6,0.2,0.2]))
+    ], [0.2,0.2,0.6]);
+  }
+
+  if (halfspeed){
+    return rhythm.map(x => Tone.Time(Tone.Time(x).toSeconds()*2));
+  }
+  return rhythm.map(x => Tone.Time(x));
+}
+
+function getMelody(key, prog, progRhythm, halfspeed){
+  const scale = [0,2,4,5,7,9,11].map(x => (x+key)%12);
+  const rangeRand = Math.min(key+Math.floor(between(12,25)),30);
+  const range = [rangeRand, rangeRand+16];
+  let phrase = [];
+  const phrase2 = [];
+
+  // Make an array showing which note (or rest) is playing on each sixteenth.
+  for (var i = 0; i < progRhythm.length; i++){
+    const chordEighths = Math.round(progRhythm[i].toSeconds() / Tone.Time('8n').toSeconds());
+    const chord = prog[i];
+    const numMelodyNotes = halfspeed ? chordEighths : chordEighths*2;
+    for (j = 0; j < numMelodyNotes; j++){
+      const chosen = chooseNote(phrase,scale,chord,range,Boolean(j == 0));
+      phrase.push(chosen);
+      if (i < progRhythm.length-1){
+        phrase2.push(chosen);
+      } else {
+        phrase2.push(chooseNote(phrase2,scale,chord,range,Boolean(j == 0)));
+      }
+    }
+  }
+
+  phrase = phrase.concat(phrase2);
+  if (halfspeed) {
+    for (var i = phrase.length-1; i >= 0; i--){
+      phrase.splice(i, 0, phrase[i]);
+    }
+  }
+
+  // Convert into note trigger info ([note, dur],0,0,[note,dur], etc)
+  const formatted = [];
+  let prev = null;
+  for (var i = 0; i < phrase.length; i+=2){
+    if (phrase[i] == prev || phrase[i] == null){ // Nothing to trigger for first 16th
+      if (phrase[i] == phrase[i+1] || phrase[i+1] == null) { // Nothing to trigger at all
+        formatted.push(null);
+      } else { // Something to trigger in second 16th only
+        const note = Tone.Frequency(phrase[i+1]+48,'midi');
+        const dur = getMelodyNoteDuration(phrase, i+1);
+        formatted.push([null, [note, dur]]);
+      }
+    } else { // Something to trigger in first 16th
+      if (phrase[i] == phrase[i+1] || phrase[i+1] == null) { // something to trigger immediately, nothing to trigger in second 16th
+        const note = Tone.Frequency(phrase[i]+48,'midi');
+        const dur = getMelodyNoteDuration(phrase, i);
+        formatted.push([[note, dur], null]);
+      } else { // something to trigger in both 16ths
+        const firstNote = Tone.Frequency(phrase[i]+48,'midi');
+        const firstDur = halfspeed ? Tone.Time('8n') : Tone.Time('16n');
+        const secondNote = Tone.Frequency(phrase[i+1]+48,'midi');
+        const secondDur = getMelodyNoteDuration(phrase, i+1);
+        formatted.push([[firstNote, firstDur], [secondNote, secondDur]]);
+      }
+    }
+    prev = phrase[i+1];
+  }
+  return formatted;
+}
+
+function getMelodyNoteDuration(phrase, pos, halfspeed){
+  let dur = 1;
+  let end = false;
+  while (!end) {
+    if (pos == phrase.length) {
+      end = true;
+    } else {
+      pos++;
+      if (phrase[pos] == phrase[pos+1]){
+        dur++
+      } else {
+        end = true;
+      }
+    }
+  }
+  dur = halfspeed ? dur*2 : dur;
+  return Tone.Time(dur*Tone.Time('16n').toSeconds());
+}
+
+function getHarmoniousNotes(scale, chord, intervals = [0,2,3,4,7,9,10,11]){
+
+    const harmonious = [...chord];
+
+    // If chord contains notes not in the scale, return chord notes as the only harmonious notes
+    for (const element of chord) {
+      if (!scale.includes(element)) {
+        return harmonious;
+      }
+    }
+
+    // Add more notes to harmonious if they are in the scale and one of the allowable intervals above the chord root
+    const possibilities = intervals.map(x => (x + chord[0]) % 12);
+    for (const element of possibilities) {
+      if (scale.includes(element) && !harmonious.includes(element)) {
+        harmonious.push(element);
+      }
+    }
+
+    return harmonious;
+}
+
+function chooseNote(phrase: (number|null)[], scale: number[], chord: number[], range: number[], newChord: boolean): number|null {
+  // Set lastNote and lastSixteenth
+  const lastSixteenth = phrase.length > 0 ? phrase[phrase.length-1] : null;
+  let lastNote = lastSixteenth;
+  if (lastNote === null){
+    for (var i = phrase.length; i > 0; i--){
+      if (phrase[i-1]) {
+        lastNote = phrase[i-1];
+        break;
+      }
+    }
+  }
+
+  // Find out how long the current note or rest has been held for
+  let sustained = 0;
+  for (var i = phrase.length; i > 0; i--){
+    if (phrase[i-1] == lastSixteenth) {
+      sustained ++;
+    } else {
+      break;
+    }
+  }
+
+  // Determine the harmonious notes
+  const harmonious = getHarmoniousNotes(scale, chord);
+  const mostHarmonious = getHarmoniousNotes(scale, chord, [0,3,4,7]);
+  const quarterBeat = phrase.length % 4 == 0 ? true : false;
+
+  let changeChance = phrase.length % 2 == 0 ? 0.15 : 0.05; // More likely to change on an eighth note
+  changeChance += quarterBeat ? 0.1 : 0; // increase again if it's a quarter note
+  changeChance += newChord ? 0.2 : 0; // increase if a new chord will be played on this sixteenth
+  changeChance += sustained/32;
+  changeChance = Math.min(changeChance, 1);
+
+  // Determine probabilities of actions based on what we know
+  let firstProb;
+  let restProb;
+  let repeatProb;
+  let stepProb;
+  let leapProb;
+
+  if (lastNote){
+    firstProb = 0;
+    if (lastSixteenth){ // last sixteenth was playing a note
+      restProb = changeChance/8;
+      repeatProb = harmonious.includes(lastSixteenth % 12) ? 1-changeChance : 0.25*(1-changeChance); // quarter prob of sustaining if it's discordant
+      stepProb = changeChance/2;
+      leapProb = changeChance/8;
+    } else { // last sixteenth was a rest
+      restProb = (1-changeChance) / 3; // skew probabilities to favour fewer rests
+      repeatProb = harmonious.includes(lastNote % 12) ? changeChance/3 : 0; // don't allow repeating of last played note if it's discordant
+      stepProb = changeChance/2;
+      leapProb = changeChance/8;
+    }
+  } else { // No note has played yet
+    firstProb = Math.min(changeChance*5, 1);
+    repeatProb = 0;
+    stepProb = 0;
+    leapProb = 0;
+    restProb = 1-firstProb;
+  }
+
+  const probabilities = [firstProb, repeatProb, stepProb, leapProb, restProb];
+
+  // Choose an action
+  const action = choose(['first','repeat','step','leap','rest'],probabilities);
+  let note;
+
+  switch(action) {
+    case 'first':
+      note = range[0] + Math.floor(between(3,13));
+      const dir = choose([-1,1]);
+      while (!chord.includes(note%12)) {
+        note += dir;
+      }
+      break;
+    case 'repeat':
+      note = lastNote;
+      break;
+    case 'step':
+      // Find all possible step options
+      var allowable = quarterBeat ? [...mostHarmonious] : [...harmonious];
+      var options = [];
+      for (var i = 1; i <= 2; i++){
+        if (allowable.includes((lastNote+i)%12) && (lastNote+i)<=range[1]){
+          options.push(lastNote+i);
+        }
+        if (allowable.includes((lastNote-i)%12) && (lastNote-i)>=range[0]){
+          options.push(lastNote-i);
+        }
+      }
+      if (options.length > 0){ // If no options, leap instead
+        note = choose(options);
+        // console.log('no step options');
+        break;
+      }
+    case 'leap':
+      // Find all possible leap options
+      var allowable = quarterBeat ? [...mostHarmonious] : [...harmonious];
+      var options = [];
+      for (var i = 0; i < allowable.length; i++){
+        for (let j = 0; j < 6; j++) {
+          const candidate = allowable[i]+(12*j);
+          if (candidate <= range[1] && candidate >= range[0]){
+            const dist = Math.abs(lastNote - candidate);
+            if (dist < 13 && dist > 2 && dist != 6) { // keep within an octave and rule out tritones
+              options.push(candidate);
+            }
+          }
+        }
+      }
+      if (options.length > 0){ // If no options, don't select a note and don't break, take a rest instead
+        note = choose(options);
+        break;
+      } else {
+        // console.log('no leap options');
+      }
+    case 'rest':
+      note = null;
+      break;
+  }
+  // if (note !== null && !harmonious.includes(note%12)) {
+  //   console.log(action);
+  //   console.log('note ('+note%12+') not in harmonious: '+harmonious);
+  // }
+  return note;
+}
+
+function getHarmony(key, prog, progRhythm, halfspeed, melody){
+  const scale = [0,2,4,5,7,9,11].map(x => (x+key)%12);
+  const lower = chance(0.7) ? true : false; // Whether to favour lower or higher harmonies
+
+  // Figure out which chord is playing for each eighth beat
+  const chordIndices = [];
+  for (var i = 0; i < progRhythm.length; i++){
+    const chordEighths = Math.round(progRhythm[i].toSeconds() / Tone.Time('8n').toSeconds());
+    for (j = 0; j < chordEighths; j++){
+      chordIndices.push(i);
+    }
+  }
+
+  const harmony = [];
+  for (var i = 0; i < melody.length; i++){
+    if (!melody[i]){
+      harmony.push(null);
+    } else {
+      const eighth = [];
+      const chord = prog[chordIndices[i % chordIndices.length]];
+      for (var j = 0; j < melody[i].length; j++){
+        if (!melody[i][j]){
+          eighth.push(null);
+        } else {
+          const sixteenth = [...melody[i][j]];
+          const melodyNote = sixteenth[0].toMidi();
+
+          // more limited options than the main melody. Must be the root, third or fifth of the underlying chord
+          const harmonious = getHarmoniousNotes(scale, chord, [0,3,4,7]);
+
+          // Find harmony note options
+          let options = [];
+          for (let k = -9; k <= 9; k++){
+            const candidate = melodyNote + k;
+            if (harmonious.includes(candidate % 12)){
+              const dist = Math.abs(melodyNote - candidate);
+              if (dist > 2 && dist != 6) { // Rule out tritones or anything smaller than a minor 3rd
+                options.push(candidate);
+              }
+            }
+          }
+
+          if (options.length >= 2) {
+            options = lower ? options.slice(0,2) : options.slice(-2, options.length);
+          }
+
+          const note = options.length > 0 ? choose(options) : choose([melodyNote+12, melodyNote-12]);
+          sixteenth[0] = Tone.Frequency(note, 'midi');
+          eighth.push(sixteenth);
+        }
+      }
+      harmony.push(eighth);
+    }
+  }
+  return harmony;
+}
+
+function getKickPattern(){
+  return [
+    1,0,0,0,
+    choose([0,1], [0.8,0.2]), choose([0,1]), 0, choose([0,1], [0.8,0.2]),
+    1,0,0,0,
+    choose([0,1], [0.8,0.2]), choose([0,1]), 0, choose([0,1], [0.8,0.2]),
+  ]
+}
+
+function getSnarePattern(){
+  return [
+    0,0,1,0,0,0,1, choose([0,1], [0.9,0.1]),
+    0,0,1,0,0,0,1, choose([0,1], [0.9,0.1]),
+  ]
+}
+
+function getHatPattern(){
+  if (chance(0.5)){
+    return [
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.2,0.8]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.1,0.9]),
+      choose([0,1], [0.1,0.9]),choose([0,1], [0.2,0.8])
+    ]
+  } else {
+    return [
+      1,0,1,0,1,0,1,choose([0,1]),
+      1,0,1,0,1,0,1,choose([0,1]),
+    ]
+  }
+}
+
+function getKickFill(kickPattern, shortFill){
+  let fill = [];
+
+  for (let i = 0; i < 8; i++){
+    var chosen;
+    if (fill.length == 0){
+      chosen = choose([[0,1],[1,0],[0,0]],[0.2,0.5,0.3]);
+    } else {
+      // find out the last eighth beat
+      const last = fill[fill.length-1];
+
+      // Find out how many notes have already been added to the sequence
+      let numNotes = 0;
+      for (let j = 0; j < fill.length; j++){
+        if (fill[j][0] || fill[j][1]) {
+          numNotes++;
+        }
+      }
+
+      let chanceBoost = 0;
+      if (i == 4 || i == 7) {
+        chanceBoost = 1;
+      }
+
+      if (!last[0] && !last[1]){ // nothing was played for the last eighth
+        chosen = choose([[0,1],[1,0],[0,0]],[1+chanceBoost,2+chanceBoost,2+numNotes]);
+      } else if (last[1]){ // something was played last sixteenth
+        chosen = [0,0];
+      } else { // something was played last eighth, but not last sixteenth
+        chosen = choose([[0,1],[1,0],[0,0]],[1+chanceBoost,1+chanceBoost,2+numNotes]);
+      }
+    }
+    fill.push(chosen);
+  }
+
+  let regularEighths = [...kickPattern];
+  if (shortFill) { // Use only the second half of the fill
+    regularEighths = regularEighths.concat(regularEighths.slice(0,12));
+    fill = fill.slice(4);
+  } else {
+    regularEighths = regularEighths.concat(regularEighths.slice(0,8));
+  }
+  const regular = regularEighths.map(x => [x, 0]);
+
+  return regular.concat(fill);
+}
+
+function getSnareFill(snarePattern, shortFill){
+  let fill = [];
+
+  for (let i = 0; i < 8; i++){
+    var chosen;
+    if (fill.length == 0){
+      chosen = choose([[0,1],[1,0],[0,0]],[0.2,0.2,0.6]);
+    } else {
+      // find out the last eighth beat
+      const last = fill[fill.length-1];
+
+      // Find out how many notes have already been added to the sequence
+      let numNotes = 0;
+      for (let j = 0; j < fill.length; j++){
+        if (fill[j][0] || fill[j][1]) {
+          numNotes++;
+        }
+      }
+
+      let chanceBoost = 0;
+      if (i == 2 || i == 6) {
+        chanceBoost = 1;
+      }
+
+      if (!last[0] && !last[1]){ // nothing was played for the last eighth
+        chosen = choose([[0,1],[1,0],[0,0]],[1+chanceBoost,2+chanceBoost,2+numNotes]);
+      } else if (last[1]){ // something was played last sixteenth
+        chosen = [0,0];
+      } else { // something was played last eighth, but not last sixteenth
+        chosen = choose([[0,1],[1,0],[0,0]],[1+chanceBoost,1+chanceBoost,2+numNotes]);
+      }
+    }
+    fill.push(chosen);
+  }
+
+  let regularEighths = [...snarePattern];
+  if (shortFill) { // Use only the second half of the fill
+    regularEighths = regularEighths.concat(regularEighths.slice(0,12));
+    fill = fill.slice(4);
+  } else {
+    regularEighths = regularEighths.concat(regularEighths.slice(0,8));
+  }
+  const regular = regularEighths.map(x => [x, 0]);
+
+  return regular.concat(fill);
+}
+
+function getHatFill(hatPattern, shortFill){
+  let fill = [];
+  let sparsePattern = true;
+  for (var i = 1; i < 6; i+=2){
+    if (hatPattern[i]) {
+      sparsePattern = false;
+      break;
+    }
+  }
+
+  if (sparsePattern){
+    for (var i = 0; i < 8; i++){
+      fill.push(choose([[0,1],[1,0],[0,0]]));
+    }
+  } else {
+    for (var i = 0; i < 8; i++){
+      fill.push(choose([[0,1],[1,0],[0,0],[1,1]],[1,1,1,0.8]));
+    }
+  }
+
+  let regularEighths = [...hatPattern];
+  if (shortFill) { // Use only the second half of the fill
+    regularEighths = regularEighths.concat(regularEighths.slice(0,12));
+    fill = fill.slice(4);
+  } else {
+    regularEighths = regularEighths.concat(regularEighths.slice(0,8));
+  }
+  const regular = regularEighths.map(x => [x, 0]);
+
+  return regular.concat(fill);
+}
+
+function getSection(song: any, parts: any[]): TransportCallback{
+  return function(now: number) {
+    now += 0.15;
+    const pos = song.transport.position.split(':').map(x=>parseInt(x,10));
+    const eighths = Math.floor((pos[0]*8)+(pos[1]*2)+(pos[2]/2));
+    for (let i = 0; i < parts.length; i++){
+      parts[i](now, eighths, song);
+    }
+  }
+}
+;
+// globals
+let gain: Tone.InputNode | Tone.Gain<"gain">, vibratoSlow: Tone.InputNode | Tone.Vibrato, vibratoFast, lowpass, filter: Tone.InputNode | Tone.Filter, chordalGain, chordalVerb,
+chordalEcho, chordalChorus, chordalFilter, leadGain, leadVerb, leadEcho, leadChorus,
+leadFilter, bassGain, limiter, finalGain;
+
+const ext = Tone.ToneAudioBuffer.supportsType('webm') ? 'webm' : 'aac';
+
+function initNodes() { // Effects Chain
+  limiter = new Tone.Limiter(-0.8).toDestination();
+  finalGain = new Tone.Gain(3, 'decibels').connect(limiter);
+  gain = new Tone.Gain(1).connect(finalGain);
+  vibratoSlow = new Tone.Vibrato(0.5, 0.2).connect(gain);
+  vibratoFast = new Tone.Vibrato(7, 0.06).connect(vibratoSlow);
+  lowpass = new Tone.Filter(20000, 'lowpass').connect(vibratoFast);
+  filter = new Tone.Filter(20, 'highpass').connect(lowpass);
+
+  chordalGain = new Tone.Gain(1).connect(filter);
+  chordalVerb = new Tone.Reverb(1).connect(chordalGain);
+  chordalEcho = new Tone.FeedbackDelay('8n', 0.2).connect(chordalVerb);
+  chordalChorus = new Tone.Chorus(4, 2.5, 0.5).connect(chordalEcho).start();
+  chordalFilter = new Tone.Filter(20, 'highpass').connect(chordalChorus);
+
+  leadGain = new Tone.Gain(1).connect(filter);
+  leadVerb = new Tone.Reverb(1).connect(leadGain);
+  leadEcho = new Tone.FeedbackDelay('8n', 0.2).connect(leadVerb);
+  leadChorus = new Tone.Chorus(4, 2.5, 0.5).connect(leadEcho).start();
+  leadFilter = new Tone.Filter(20, 'highpass').connect(leadChorus);
+
+  bassGain = new Tone.Gain(1).connect(filter);
+}
+initNodes();
+
+
+// Instruments and Ambiences are initialised as objects containing loading instructions
+class Ambience {
+  constructor(playerConstructor) {
+    this.player = null;
+    this.isLoaded = false;
+    this.playerConstructor = playerConstructor;
+  }
+
+  load(cache){
+    return new Promise(resolve => {
+      const filepath = this.playerConstructor.url;
+      getAudioBufferFromFilepath(cache, filepath)
+        .then((buffer) => {
+          this.playerConstructor.url = buffer;
+          this.isLoaded = true;
+          resolve();
+        });
+    });
+  }
+
+  create(){
+    const self = this;
+    return new Promise(resolve => {
+      if (!self.isLoaded){
+        self.load()
+        .then(function(){
+          self.player = new Tone.Player(self.playerConstructor);
+          resolve(self.player);
+        });
+      } else {
+        self.player = new Tone.Player(self.playerConstructor);
+        resolve(self.player);
+      }
+    });
+  }
+
+  connect(node){
+    return new Promise(resolve => {
+      if (!this.player){
+        this.create()
+        .then(player => resolve(player.connect(node)))
+      } else {
+        resolve(this.player.connect(node));
+      }
+    });
+  }
+}
+
+class Instrument {
+  constructor(samplerConstructor, vol, attack, release) {
+    this.sampler = null;
+    this.isLoaded = false;
+    this.samplerConstructor = samplerConstructor;
+    this.vol = vol;
+    this.attack = attack;
+    this.release = release;
+  }
+
+  load(cache){
+    return new Promise(resolve => {
+      const map = this.samplerConstructor.urls;
+      const baseUrl = this.samplerConstructor.baseUrl;
+
+      for (const note in map){
+        const filepath = baseUrl+map[note];
+        getAudioBufferFromFilepath(cache, filepath)
+          .then((buffer) => {
+            map[note] = buffer
+            if (checkBuffersLoaded(map)) {
+              this.isLoaded = true;
+              resolve();
+            };
+          });
+      }
+    });
+  }
+
+  create(){
+    const self = this;
+    return new Promise(resolve => {
+      if (!self.isLoaded){
+        if (cacheAvailable) {
+          caches.open('audio-cache')
+          .then(cache => {
+            self.load(cache)
+            .then(function(){
+              self.sampler = new Tone.Sampler(self.samplerConstructor);
+              self.sampler.volume.value = self.vol;
+              self.sampler.attack = self.attack;
+              self.sampler.release = self.release;
+              resolve(self.sampler);
+            });
+          })
+        } else {
+          self.load()
+          .then(function(){
+            self.sampler = new Tone.Sampler(self.samplerConstructor);
+            self.sampler.volume.value = self.vol;
+            self.sampler.attack = self.attack;
+            self.sampler.release = self.release;
+            resolve(self.sampler);
+          });
+        }
+      } else {
+        self.sampler = new Tone.Sampler(self.samplerConstructor);
+        self.sampler.volume.value = self.vol;
+        self.sampler.attack = self.attack;
+        self.sampler.release = self.release;
+        resolve(self.sampler);
+      }
+    });
+  }
+
+  connect(node){
+    return new Promise(resolve => {
+      if (!this.sampler){
+        this.create()
+        .then(sampler => resolve(sampler.connect(node)))
+      } else {
+        resolve(this.sampler.connect(node));
+      }
+    });
+  }
+}
+
+// ambiences and vinyls
+const ambiences = Array(7).fill(null);
+const vinyls = Array(4).fill(null);
+
+for (var i = 0; i < ambiences.length; i++) {
+  ambiences[i] = new Ambience({
+    "url" : "audio/ambience/ambience"+i+"."+ext,
+    "loop" : true,
+    "fadein" : 2,
+    "volume" : -14
+  })
+}
+
+for (var i = 0; i < vinyls.length; i++) {
+  vinyls[i] = new Ambience({
+    "url" : "audio/ambience/vinyl"+i+"."+ext,
+    "loop" : true,
+    "fadein" : 2,
+    "volume" : -16
+  })
+}
+
+var piano0 = new Instrument({
+    urls: {
+      'A1': 'A1.'+ext,
+      'A2': 'A2.'+ext,
+      'A6': 'A6.'+ext,
+      'A7': 'A7.'+ext,
+      'A#0': 'As0.'+ext,
+      'A#3': 'As3.'+ext,
+      'A#4': 'As4.'+ext,
+      'A#5': 'As5.'+ext,
+
+      'C1': 'C1.'+ext,
+      'C2': 'C2.'+ext,
+      'C3': 'C3.'+ext,
+      'C4': 'C4.'+ext,
+      'C5': 'C5.'+ext,
+      'C6': 'C6.'+ext,
+      'C7': 'C7.'+ext,
+      'C8': 'C8.'+ext,
+
+      'D3': 'D3.'+ext,
+      'D4': 'D4.'+ext,
+      'D5': 'D5.'+ext,
+      'D#1': 'Ds1.'+ext,
+      'D#2': 'Ds2.'+ext,
+      'D#6': 'Ds6.'+ext,
+      'D#7': 'Ds7.'+ext,
+
+      'E3': 'E3.'+ext,
+      'E4': 'E4.'+ext,
+      'E5': 'E5.'+ext,
+
+      'F#1': 'Fs1.'+ext,
+      'F#2': 'Fs2.'+ext,
+      'F#3': 'Fs3.'+ext,
+      'F#4': 'Fs4.'+ext,
+      'F#5': 'Fs5.'+ext,
+      'F#6': 'Fs6.'+ext,
+      'F#7': 'Fs7.'+ext,
+
+      'G7': 'G7.'+ext,
+      'G#3': 'Gs3.'+ext,
+      'G#4': 'Gs4.'+ext,
+      'G#5': 'Gs5.'+ext,
+    },
+    baseUrl: 'audio/piano_kawai/'
+}, 10, 0, 0.1);
+
+var piano1 = new Instrument({
+    urls: {
+      'A2': 'A2.'+ext,
+      'A3': 'A3.'+ext,
+      'A4': 'A4.'+ext,
+      'A5': 'A5.'+ext,
+      'A6': 'A6.'+ext,
+      'A7': 'A7.'+ext,
+
+      'C#1': 'Cs1.'+ext,
+      'C#2': 'Cs2.'+ext,
+      'C#3': 'Cs3.'+ext,
+      'C#4': 'Cs4.'+ext,
+      'C#5': 'Cs5.'+ext,
+      'C#6': 'Cs6.'+ext,
+      'C#7': 'Cs7.'+ext,
+
+      'C8': 'C8.'+ext,
+
+      'F1': 'F1.'+ext,
+      'F2': 'F2.'+ext,
+      'F3': 'F3.'+ext,
+      'F4': 'F4.'+ext,
+      'F5': 'F5.'+ext,
+      'F6': 'F6.'+ext,
+      'F7': 'F7.'+ext,
+    },
+    baseUrl: 'audio/piano_upright/'
+}, 2, 0, 0.3);
+
+var rhodes0 = new Instrument({
+    urls: {
+      'C2': 'C2.'+ext,
+      'C3': 'C3.'+ext,
+      'C4': 'C4.'+ext,
+      'C5': 'C5.'+ext,
+
+      'E2': 'E2.'+ext,
+      'E3': 'E3.'+ext,
+      'E4': 'E4.'+ext,
+
+      'G2': 'G2.'+ext,
+      'G3': 'G3.'+ext,
+      'G4': 'G4.'+ext,
+      'G5': 'G5.'+ext,
+    },
+    baseUrl: 'audio/rhodes0/'
+}, -20, 0, 0.3);
+
+var rhodes1 = new Instrument({
+    urls: {
+      'C2': 'C2.'+ext,
+      'C3': 'C3.'+ext,
+      'C4': 'C4.'+ext,
+      'C5': 'C5.'+ext,
+      'C6': 'C6.'+ext,
+      'C7': 'C7.'+ext,
+
+      'E1': 'E1.'+ext,
+      'E2': 'E2.'+ext,
+      'E3': 'E3.'+ext,
+      'E4': 'E4.'+ext,
+      'E5': 'E5.'+ext,
+      'E6': 'E6.'+ext,
+      'E7': 'E7.'+ext,
+
+      'G#1': 'Gs1.'+ext,
+      'G#2': 'Gs2.'+ext,
+      'G#3': 'Gs3.'+ext,
+      'G#4': 'Gs4.'+ext,
+      'G#5': 'Gs5.'+ext,
+      'G#6': 'Gs6.'+ext,
+    },
+    baseUrl: 'audio/rhodes1/'
+},-18, 0, 0.3);
+
+// Synth
+var synth0 = new Instrument({
+    urls: {
+      'C#2': 'Cs1.'+ext,
+      'F#2': 'Fs1.'+ext,
+      'B2': 'B1.'+ext,
+      'E3': 'E2.'+ext,
+      'A3': 'A2.'+ext,
+      'D4': 'D3.'+ext,
+      'G4': 'G3.'+ext,
+      'C5': 'C4.'+ext,
+      'F5': 'F4.'+ext,
+      'A#5': 'As4.'+ext,
+      'D#6': 'Ds5.'+ext,
+      'G#6': 'Gs5.'+ext,
+      'C#7': 'Cs6.'+ext
+    },
+    baseUrl: 'audio/synth/',
+  }, -12, 0, 0.1);
+
+// Kalmiba
+var kalimba = new Instrument({
+    urls: {
+      'C4': 'C4.'+ext,
+      'D4': 'D4.'+ext,
+      'F#4': 'Fs4.'+ext,
+      'A4': 'A4.'+ext,
+      'C5': 'C5.'+ext,
+      'E5': 'E5.'+ext,
+      'G5': 'G5.'+ext,
+      'B5': 'B5.'+ext,
+    },
+    baseUrl: 'audio/kalimba/'
+}, -12, 0, 2);
+
+// Dan tranh
+var dantranh = new Instrument({
+    urls: {
+      'B2': 'B2.'+ext,
+      'B3': 'B3.'+ext,
+      'B4': 'B4.'+ext,
+      'B5': 'B5.'+ext,
+      'D#3': 'Ds3.'+ext,
+      'D#4': 'Ds4.'+ext,
+      'D#5': 'Ds5.'+ext,
+      'F#3': 'Fs3.'+ext,
+      'F#4': 'Fs4.'+ext,
+      'F#5': 'Fs5.'+ext,
+      'G#3': 'Gs3.'+ext,
+      'G#4': 'Gs4.'+ext,
+      'G#5': 'Gs5.'+ext,
+    },
+    baseUrl: 'audio/dantranh/'
+}, 6, 0, 2);
+
+// Marimba
+var marimba = new Instrument({
+    urls: {
+      'B3': 'B2.'+ext,
+      'B5': 'B4.'+ext,
+      'C3': 'C2.'+ext,
+      'C5': 'C4.'+ext,
+      'C7': 'C6.'+ext,
+      'F2': 'F1.'+ext,
+      'F4': 'F3.'+ext,
+      'F7': 'F5.'+ext,
+      'G3': 'G2.'+ext,
+      'G5': 'G4.'+ext,
+    },
+    baseUrl: 'audio/marimba/'
+}, 0, 0, 2);
+
+// // Ocarina
+// var ocarina = new Instrument({
+//     urls: {
+//       'A5': 'A5.'+ext,
+//       'A#4': 'As4.'+ext,
+//       'A#5': 'As5.'+ext,
+//       'B5': 'B5.'+ext,
+//       'C5': 'C5.'+ext,
+//       'D5': 'D5.'+ext,
+//       'E5': 'E5.'+ext,
+//       'F5': 'F5.'+ext,
+//       'G5': 'G5.'+ext,
+//       'G#5': 'Gs5.'+ext,
+//     },
+//     baseUrl: 'audio/ocarina/'
+// }, -8, 0, 0.5);
+
+// Guitar
+var guitar = new Instrument({
+    urls: {
+      'A3': 'A3.'+ext,
+      'A4': 'A4.'+ext,
+      'C5': 'C5.'+ext,
+      'E4': 'E4.'+ext,
+      'E5': 'E5.'+ext,
+      'G#5': 'Gs5.'+ext,
+    },
+    baseUrl: 'audio/guitar/'
+}, 5, 0, 0.5);
+
+// Uke
+var uke = new Instrument({
+    urls: {
+      'A4': 'A4.'+ext,
+      'A#5': 'As5.'+ext,
+      'D5': 'D5.'+ext,
+      'E4': 'E4.'+ext,
+      'G5': 'G5.'+ext,
+    },
+    baseUrl: 'audio/uke/'
+}, 4, 0, 0.5);
+
+// violin pizzicato
+var violinpizz = new Instrument({
+    urls: {
+      'A3': 'A3.'+ext,
+      'A4': 'A4.'+ext,
+      'A5': 'A5.'+ext,
+      'C4': 'C4.'+ext,
+      'C5': 'C5.'+ext,
+      'E4': 'E4.'+ext,
+      'E5': 'E5.'+ext,
+      'G3': 'G3.'+ext,
+      'G4': 'G4.'+ext,
+      'G5': 'G5.'+ext,
+    },
+    baseUrl: 'audio/violin_pizz/'
+}, 5, 0, 0.5);
+
+// Bass
+var bass0 = new Instrument({
+    urls: {
+      'C#2': 'Cs1.'+ext,
+      'F#2': 'Fs1.'+ext,
+      'B2': 'B1.'+ext,
+      'E3': 'E2.'+ext,
+      'A3': 'A2.'+ext,
+      'D4': 'D3.'+ext,
+      'G4': 'G3.'+ext,
+      'C5': 'C4.'+ext,
+      'F5': 'F4.'+ext,
+      'A#5': 'As4.'+ext,
+      'D#6': 'Ds5.'+ext,
+      'G#6': 'Gs5.'+ext,
+      'C#7': 'Cs6.'+ext
+    },
+    baseUrl: 'audio/bass/'
+}, -12, 0, 0.1);
+
+var bass1 = new Instrument({
+    urls: {
+      'A#1': 'As1.'+ext,
+      'A2': 'A2.'+ext,
+      'B3': 'B3.'+ext,
+      'C2': 'C2.'+ext,
+      'C#3': 'Cs3.'+ext,
+      'D2': 'D2.'+ext,
+      'E1': 'E1.'+ext,
+      'E2': 'E2.'+ext,
+      'E3': 'E3.'+ext,
+      'F#1': 'Fs1.'+ext,
+      'F#2': 'Fs2.'+ext,
+      'G1': 'G1.'+ext,
+      'G#2': 'Gs2.'+ext,
+      'G#3': 'Gs3.'+ext
+    },
+    baseUrl: 'audio/contrabass/'
+}, 8, 0, 0.1);
+
+var bass2 = new Instrument({
+    urls: {
+      'D2': 'D1.'+ext,
+      'F#2': 'Fs1.'+ext,
+      'A#2': 'As1.'+ext,
+      'D3': 'D2.'+ext,
+    },
+    baseUrl: 'audio/synthbass/'
+}, -10, 0, 0.1);
+
+var bass3 = new Instrument({
+    urls: {
+      'A2': 'A2.'+ext,
+      'C2': 'C2.'+ext,
+      'C3': 'C3.'+ext,
+      'D#2': 'Ds2.'+ext,
+      'F2': 'F2.'+ext,
+    },
+    baseUrl: 'audio/guitar_low/'
+}, -10, 0, 0.1);
+
+var hat = new Instrument({
+    urls: {
+      'C1': 'hat0.'+ext,
+      'D1': 'hat1.'+ext,
+      'E1': 'hat2.'+ext,
+      'F#1': 'hat3.'+ext,
+      'G#1': 'hat4.'+ext,
+      'A#1': 'hat5.'+ext,
+      'C2': 'shaker0.'+ext
+    },
+    baseUrl: 'audio/hat/'
+}, -24, 0, 0);
+
+// Snare
+var snare = new Instrument({
+    urls: {
+      'C1': 'snare0.'+ext,
+      'D1': 'snare1.'+ext,
+      'E1': 'snare2.'+ext,
+      'F#1': 'snare3.'+ext,
+      'G#1': 'snare4.'+ext,
+      'A#1': 'snare5.'+ext,
+      'C2': 'snare6.'+ext,
+      'D2': 'snare7.'+ext,
+      'E2': 'snare6.'+ext,
+      'F#2': 'snare7.'+ext,
+      'G#2': 'snare8.'+ext,
+      'A#2': 'snare9.'+ext,
+      'C3': 'snare10.'+ext,
+      'D3': 'snare11.'+ext,
+      'E3': 'snare12.'+ext,
+      'F#3': 'snare13.'+ext,
+      'G#3': 'snare14.'+ext,
+      'A#3': 'snare15.'+ext,
+      'C4': 'snare16.'+ext,
+      'D4': 'snare17.'+ext,
+      'E4': 'snare18.'+ext,
+      'F#4': 'snare19.'+ext,
+      'G#4': 'snare20.'+ext
+    },
+    baseUrl: 'audio/snare/'
+},0,0,0);
+
+// Kick
+var kick = new Instrument({
+    urls: {
+      'C1': 'kick0.'+ext,
+      'D1': 'kick1.'+ext,
+      'E1': 'kick2.'+ext,
+      'F#1': 'kick3.'+ext,
+      'G#1': 'kick4.'+ext,
+      'A#1': 'kick5.'+ext,
+      'C2': 'kick6.'+ext,
+      'D2': 'kick7.'+ext,
+      'E2': 'kick8.'+ext,
+      'F#2': 'kick9.'+ext,
+      'G#2': 'kick10.'+ext,
+      'A#2': 'kick11.'+ext,
+      'C3': 'kick12.'+ext,
+      'D3': 'kick13.'+ext,
+      'E3': 'kick14.'+ext,
+      'F#3': 'kick15.'+ext,
+      'G#3': 'kick16.'+ext,
+      'A#3': 'kick17.'+ext,
+      'C4': 'kick18.'+ext,
+      'D4': 'kick19.'+ext
+    },
+    baseUrl: 'audio/kick/'
+},0,0,0);
+;
+// DEFINITIONS
+
+// global
+let starting;
+
+const inventoryUpdated = 0;
+
+function onStart(){
+  const transport = Tone.Transport;
+  const song = getSong(transport);
+  startPlaying(song);
+}
+
+function getSong(transport, offline = false, bpm = between(60,90)) {
+  const song = {};
+  const autoplay = !offline;
+
+  song.offline = offline;
+  song.transport = transport;
+
+  // Tempo, swing, key
+  song.bpm = bpm;
+  transport.bpm.value = song.bpm;
+  transport.swing = choose([between(0,0.02), between(0.02,0.1)], [0.8,0.2]);
+  song.key = Math.floor(between(0,12));
+
+  // Choose all sounds and instruments
+  chooseAmbience()
+  .then(res => song.ambience = res);
+
+  chooseVinyl()
+  .then(res => song.vinyl = res);
+
+  chooseChordal()
+  .then(res => song.chordal = res);
+
+  chooseLead()
+  .then(res => song.lead = res);
+
+  song.bassDucking = chance(0.7);
+  chooseBass(song.bassDucking, song.bpm)
+  .then(res => song.bass = res);
+
+  connectKit();
+
+  setEffects();
+
+  // Progressions, basslines, melodies
+  song.prog = getProg(song.key);
+  song.halfspeedProg = song.bpm < 70 ? false : chance(0.3);
+  song.progRhythm = getProgRhythm(song.prog.length, song.halfspeedProg);
+  song.progVoiced = getProgVoiced(song.prog, song.progRhythm, song.halfspeedProg);
+  song.alt_progVoiced = getProgVoiced(song.prog, song.progRhythm, song.halfspeedProg);
+
+  song.bassSimple = getBassSimple(song.prog, song.progRhythm, song.halfspeedProg);
+  song.bassRhythmic = getBassRhythmic(song.prog, song.progRhythm, song.halfspeedProg);
+
+  song.melody = getMelody(song.key, song.prog, song.progRhythm, song.halfspeedProg);
+  song.harmony = getHarmony(song.key, song.prog, song.progRhythm, song.halfspeedProg, song.melody);
+
+  song.alt_melody = getMelody(song.key, song.prog, song.progRhythm, song.halfspeedProg);
+  song.alt_harmony = getHarmony(song.key, song.prog, song.progRhythm, song.halfspeedProg, song.alt_melody);
+
+  // Beats
+  song.kickType = Tone.Frequency(between(0,41)+23,'midi');
+  song.snareType = Tone.Frequency(between(0,43)+23,'midi');
+  song.hatType = Tone.Frequency(between(0,15)+23,'midi');
+  song.kickPattern = getKickPattern();
+  song.snarePattern = getSnarePattern();
+  song.hatPattern = getHatPattern();
+
+  const shortFill = song.bpm < 78 ? true : chance(0.6);
+  song.kickFill = getKickFill(song.kickPattern, shortFill);
+  song.snareFill = getSnareFill(song.snarePattern, shortFill);
+  song.hatFill = getHatFill(song.hatPattern, shortFill);
+
+  const bassPatternProbs = chance(0.7) ? [0.8, 0.2] : [0.2, 0.8];
+
+  // Make sure gain is full for the start of the song
+  transport.scheduleOnce(function(time) {gain.gain.setValueAtTime(1, time);}, '0:0:0');
+
+  // Define functions for each section
+  const introA = getSection(song, chooseSome(
+    [playBlockChords, 1],
+    [playMelody, 0.5],
+    choose([[playHat, 0.5],[playSnare, 0.2],[playKick,0.3]]),
+    [playSimpleBass, 0.15]
+  ));
+
+  const introB = getSection(song, chooseSome(
+    choose([[playBlockChords, 1], [playAltBlockChords, 1]]),
+    [playMelody, 0.75],
+    [playBeat, 1],
+    choose([[playSimpleBass, 1], [playRhythmicBass, 1]],bassPatternProbs),
+  ));
+
+  const sectionA = getSection(song, chooseSome(
+    choose([[playBlockChords, 1], [playAltBlockChords, 1]]),
+    [playMelody, 1],
+    [playHarmony, 0.75],
+    choose([[playBeat, 1],[playBeatFill, 1]],[0.6,0.4]),
+    choose([[playSimpleBass, 1], [playRhythmicBass, 1]],bassPatternProbs),
+  ));
+
+  const sectionB = getSection(song, chooseSome(
+    choose([[playBlockChords, 1], [playAltBlockChords, 1]]),
+    [playMelody, 1],
+    [playHarmony, 1],
+    choose([[playBeat, 0.8],[playBeatFill, 0.8]],[0.6,0.4]),
+    choose([[playSimpleBass, 1], [playRhythmicBass, 1]],bassPatternProbs),
+  ));
+
+  const sectionC = getSection(song, chooseSome(
+    choose([[playBlockChords, 1], [playAltBlockChords, 1]]),
+    [playAltMelody, 1],
+    [playAltHarmony, 0.5],
+    choose([[playBeat, 1],[playBeatFill, 1]],[0.6,0.4]),
+    choose([[playSimpleBass, 1], [playRhythmicBass, 1]],bassPatternProbs),
+  ));
+
+  const sectionD = getSection(song, chooseSome(
+    choose([[playBlockChords, 1], [playAltBlockChords, 1]]),
+    choose([[playMelody, 0.7], [playAltMelody, 0.7]]),
+    [playHarmony, 0.5],
+    choose([[playBeat, 0.8], [playKick, 1], [playSnare, 1], [playBeatFill,0.8]],[0.5,0.16,0.16,0.16]),
+    choose([[playSimpleBass, 1], [playRhythmicBass, 1]],bassPatternProbs),
+  ));
+
+  // Schedule each section
+  transport.scheduleRepeat(introA, '8n', '0:0:0', '4:0:0');
+  transport.scheduleRepeat(introB, '8n', '4:0:0', choose(['3:3:0','3:2:0','4:0:0']));
+  transport.scheduleRepeat(sectionA, '8n', '8:0:0', '4:0:0');
+  transport.scheduleRepeat(sectionB, '8n', '12:0:0', choose(['3:3:0','3:2:0','4:0:0']));
+  transport.scheduleRepeat(sectionC, '8n', '16:0:0', '4:0:0');
+  transport.scheduleRepeat(sectionD, '8n', '20:0:0', choose(['3:3:0','3:2:0','4:0:0']));
+  transport.scheduleRepeat(choose([sectionA,sectionB]), '8n', '24:0:0', '4:0:0');
+  transport.scheduleRepeat(choose([introA,introB]), '8n', '28:0:0', '6:0:0');
+
+  // Shedule ambience, effect chain automation
+  transport.scheduleOnce(function(time) {song.ambience.start(time, between(0, song.ambience.buffer.duration))},'0:0:0');
+  transport.scheduleOnce(function(time) {song.vinyl.start(time, between(0, song.vinyl.buffer.duration))},'0:0:0');
+  transport.scheduleOnce(function(time) {setFilter(choose([1,2]),time)}, '0:0:0');
+  transport.scheduleOnce(function(time) {rampRemoveFilter(time, choose(['4:0:0','8:0:0']))}, '0:0:0');
+
+  // Add and remove filter
+  if (chance(0.5)) {
+    const bar = 12+4*choose([0,1,2,3]);
+    const addAt = (bar-1).toString()+':3:3';
+    const removeAt = (bar+choose([1,3])).toString()+':3:3';
+    transport.scheduleOnce(function(time) {rampAddFilter(time, '0:0:1', song)}, addAt);
+    transport.scheduleOnce(function(time) {rampRemoveFilter(time, '0:0:1')}, removeAt);
+  }
+
+  // Fade out, then skip to next song
+  transport.scheduleOnce(function(time) {fadeOut(time)}, '28:0:0');
+  if (autoplay){
+    transport.scheduleOnce(skip, '34:0:0');
+  }
+
+  // return the song
+  return song;
+}
+
+// Functions that get called each eighth beat to play the parts
+
+function playBlockChords(now, eighths, song){
+  const progPos = eighths % song.progVoiced.length
+  if (song.progVoiced[progPos]){
+    const toPlay = song.progVoiced[progPos];
+    triggerHumanised(song.chordal, toPlay[0], toPlay[1], now, [0.7,1], 0.1);
+    if (!song.offline) {pulseChordal(now);}
+  }
+}
+
+function playAltBlockChords(now, eighths, song){
+  const progPos = eighths % song.alt_progVoiced.length
+  if (song.alt_progVoiced[progPos]){
+    const toPlay = song.alt_progVoiced[progPos];
+    triggerHumanised(song.chordal, toPlay[0], toPlay[1], now, [0.7,1], 0.1);
+    if (!song.offline) {pulseChordal(now);}
+  }
+}
+
+function playSimpleBass(now, eighths, song){
+  const pos = eighths % song.bassSimple.length;
+  if (song.bassSimple[pos]){
+    const toPlay = song.bassSimple[pos];
+    song.bass.triggerAttackRelease(toPlay[0], toPlay[1], now, 1);
+  }
+}
+
+function playRhythmicBass(now, eighths, song){
+  pos = eighths % song.bassRhythmic.length;
+  if (song.bassRhythmic[pos]){
+    const toPlay = song.bassRhythmic[pos];
+    song.bass.triggerAttackRelease(toPlay[0], toPlay[1], now, 1);
+  }
+}
+
+function playSixteenths(now, eighths, instrument, notes, humanised = false){
+  const pos = eighths % notes.length;
+  if (notes[pos]){
+    const toPlay = notes[pos];
+    for (let i = 0; i < 2; i++) {
+      if (toPlay[i]){
+        if (humanised){
+          triggerHumanised(instrument, [toPlay[i][0]], toPlay[i][1], now+i*Tone.Time('16n').toSeconds(), [0.8,1], 0.03);
+        } else {
+          instrument.triggerAttackRelease(toPlay[i][0], toPlay[i][1], now+i*Tone.Time('16n').toSeconds(), 1);
+        }
+      }
+    }
+  }
+}
+
+function playMelody(now, eighths, song){
+  playSixteenths(now, eighths, song.lead, song.melody, true);
+}
+
+function playAltMelody(now, eighths, song){
+  playSixteenths(now, eighths, song.lead, song.alt_melody, true);
+}
+
+function playHarmony(now, eighths, song){
+  playSixteenths(now, eighths, song.lead, song.harmony, true);
+}
+
+function playAltHarmony(now, eighths, song){
+  playSixteenths(now, eighths, song.lead, song.alt_harmony, true);
+}
+
+function playBeat(now, eighths, song){
+  playKick(now, eighths, song);
+  playSnare(now, eighths, song);
+  playHat(now, eighths, song);
+}
+
+function playKick(now, eighths, song){
+  const beatPos = eighths % 16;
+  if (song.kickPattern[beatPos]){
+    kick.sampler.triggerAttackRelease(song.kickType,'8n',now,1);
+    if (!song.offline) {pulseKick(now);}
+    duck(now, song.bassDucking);
+  }
+}
+
+function playSnare(now, eighths, song){
+  const beatPos = eighths % 16;
+  if (song.snarePattern[beatPos]){
+    snare.sampler.triggerAttackRelease(song.snareType,'8n',now,1);
+    if (!song.offline) {pulseSnare(now);}
+  }
+}
+
+function playHat(now, eighths, song){
+  const beatPos = eighths % 16;
+  if (song.hatPattern[beatPos]){
+    hat.sampler.triggerAttackRelease(song.hatType,'8n',now+between(0,0.03),between(0.7,1));
+    if (!song.offline) {pulseHat(now);}
+  }
+}
+
+function playBeatFill(now, eighths, song){
+  const pos = eighths % 32;
+  playKickFill(now, pos, song);
+  playSnareFill(now, pos, song);
+  playHatFill(now, pos, song);
+}
+
+function playKickFill(now, pos, song){
+  const toPlay = song.kickFill[pos];
+  for (let i = 0; i < 2; i++) {
+    if (toPlay[i]){
+      const time = now+i*Tone.Time('16n').toSeconds();
+      kick.sampler.triggerAttackRelease(song.kickType,'4n',time,1);
+      if (!song.offline) {pulseKick(time);}
+      duck(time, song.bassDucking);
+    }
+  }
+}
+
+function playSnareFill(now, pos, song){
+  const toPlay = song.snareFill[pos];
+  for (let i = 0; i < 2; i++) {
+    if (toPlay[i]){
+      const time = now+i*Tone.Time('16n').toSeconds();
+      snare.sampler.triggerAttackRelease(song.snareType,'8n',time,1);
+      if (!song.offline) {pulseSnare(time);}
+    }
+  }
+}
+
+function playHatFill(now, pos, song){
+  const toPlay = song.hatFill[pos];
+  for (let i = 0; i < 2; i++) {
+    if (toPlay[i]){
+      const time = now+i*Tone.Time('16n').toSeconds();
+      hat.sampler.triggerAttackRelease(song.hatType,'8n',time+between(0,0.03),between(0.7,1));
+      if (!song.offline) {pulseHat(time);}
+    }
+  }
+}
+
+function triggerHumanised(instrument: Tone.Sampler, notes: number[] | string[], duration: number, time: number, velRange: number[], maxDelay: number) {
+  for (let i = 0; i < notes.length; i++) {
+    instrument.triggerAttackRelease(notes[i], duration, time + between(0, maxDelay), between(velRange[0], velRange[1]));
+  }
+}
+
+function setEffects(){
+  leadVerb.decay = between(0.5,2.5);
+  leadVerb.wet.value = between(0.1,0.5);
+  leadEcho.delayTime = choose(['8n','4n']);
+  leadEcho.feedback = between(0.1,0.3)
+  leadEcho.wet.value = choose([0, between(0,0.2)]);
+  leadChorus.frequency.value = choose([2,4]);
+  leadChorus.depth = between(0,0.3);
+  leadChorus.delayTime = between(2,2.5);
+  leadChorus.wet.value = choose([0, between(0,1)]);
+  leadFilter.frequency.value = choose([20,between(300,1200)],[0.8,0.2]);
+
+  // console.log('leadChorus depth: '+leadChorus.depth);
+  // console.log('leadChorus delay: '+leadChorus.delayTime);
+  // console.log('leadChorus wet: '+leadChorus.wet.value);
+
+  chordalVerb.decay = between(0.5,2.5);
+  chordalVerb.wet.value = between(0.1,0.65);
+  chordalEcho.delayTime = choose(['8n','4n']);
+  chordalEcho.feedback = between(0.1,0.3)
+  chordalEcho.wet.value = choose([0, between(0,0.2)])
+  chordalChorus.frequency.value = choose([2,4]);
+  chordalChorus.depth = between(0,0.3);
+  chordalChorus.delayTime = between(2,2.5);
+  chordalChorus.wet.value = choose([0, between(0,1)]);
+  chordalFilter.frequency.value = choose([20,between(200,500)],[0.8,0.2]);
+
+  // console.log('chordalChorus depth: '+chordalChorus.depth);
+  // console.log('chordalChorus delay: '+chordalChorus.delayTime);
+  // console.log('chordalChorus wet: '+chordalChorus.wet.value);
+
+  // Master Effects
+  vibratoSlow.depth.value = between(0,0.25);
+  vibratoFast.depth.value = between(0,0.1);
+  lowpass.frequency.value = choose([20000,between(6000,10000),between(10000,14000)],[0.5,0.2,0.3]);
+}
+
+function duck(now, bassDucking){
+  const attack = 0.008;
+  const min = 0.015849; // -36db change from 1
+  const release = 0.44;
+  const sustain = 0.06;
+
+  chordalGain.gain.rampTo(min, attack, now);
+  chordalGain.gain.rampTo(1, release, now + attack + sustain);
+
+  if (bassDucking){
+    bassGain.gain.rampTo(min, attack, now);
+    bassGain.gain.rampTo(1, release, now + attack + sustain);
+  }
+}
+
+function setFilter(filterType, now) {
+  switch (filterType) {
+    case 0: // None
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(20, now);
+      break;
+    case 1: // Lowpass
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(between(300,400), now);
+      break;
+    case 2: // Highpass
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(between(1000,1600), now);
+      break;
+  }
+}
+
+function rampAddFilter(now, rampTime, song){
+  if (!song.offline){
+    filter.type = chance(0.5) ? 'lowpass' : 'highpass'; // can't seem to change this for offline rendering
+  }
+  if (filter.type == 'highpass'){
+    filter.frequency.setValueAtTime(20, now);
+    filter.frequency.rampTo(between(1000,1600), rampTime, now);
+  } else if (filter.type == 'lowpass'){
+    filter.frequency.setValueAtTime(20000, now);
+    filter.frequency.rampTo(between(600,1000), rampTime, now);
+  }
+}
+
+function rampRemoveFilter(now, rampTime) {
+  if (filter.type == 'highpass'){
+    filter.frequency.rampTo(20, rampTime, now);
+  } else if (filter.type == 'lowpass'){
+    filter.frequency.rampTo(20000, rampTime, now);
+  }
+}
+
+function fadeOut(now){
+  gain.gain.rampTo(0, '6:0:0', now);
+}
+
+function skip(){
+  stop();
+  clearTimeout(starting);
+  starting = setTimeout(onStart, 500);
+}
+
+function stop(){
+  for (const element of ambiences) {
+    if (element.player && element.player.state == 'started') {
+      element.player.stop();}
+  }
+  for (const element of vinyls) {
+    if (element.player && element.player.state == 'started') {
+      element.player.stop();}
+  }
+  filter.frequency.cancelScheduledValues(Tone.now());
+  Tone.Transport.cancel();
+  if (Tone.Transport.state != 'stopped'){ Tone.Transport.stop(); }
+}

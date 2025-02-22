@@ -6,9 +6,10 @@ const CRTEffect = () => {
     <>
       <style>
         {`
-          body > div > main > * {
-            animation: vibrate 0.1s infinite, chromatic 24s infinite;
-          }
+        body > div > main > * {
+          animation: vibrate 0.1s infinite, chromatic 24s infinite;
+          filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
+        }
         `}
       </style>
       <div className="crt-overlay">

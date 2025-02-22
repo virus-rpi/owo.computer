@@ -1,5 +1,6 @@
 import { useGLTF, Html } from '@react-three/drei';
 import styles from './page.module.css';
+import Sound from "@/app/_components/sound";
 
 export default function CRTMonitor({ position }: Readonly<{ position: number[] }>) {
   const { scene } = useGLTF('/crt_monitor.glb');
@@ -16,6 +17,7 @@ export default function CRTMonitor({ position }: Readonly<{ position: number[] }
       >
         <div className={styles.crtScreen}>
           <iframe src='https://owo.computer' title="OwO" />
+          <Sound crtEffect={true} text="OwO" />
         </div>
       </Html>
     </primitive>
