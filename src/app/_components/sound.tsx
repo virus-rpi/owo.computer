@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef } from "react";
+import {useEffect, useRef, useState} from "react";
+import Lofi from "./Lofi";
 
 function playPlopSound(audioContext: AudioContext) {
     const oscillator = audioContext.createOscillator();
@@ -78,13 +79,13 @@ function playHum(audioContext: AudioContext) {
   return oscillator;
 }
 
-function fixAudioIfNeeded(audioContext: AudioContext) {
+function fixAudioIfNeeded(audioContext: AudioContext, setAudioWorking: (working: boolean) => void) {
   if (!audioContext) return;
   const intervalId = setInterval(() => {
     if (audioContext.state === "suspended") {
       audioContext.resume().catch(err =>
         console.error("Failed to resume audio context", err)
-      );
+      ).then(() => setAudioWorking(true));
     } else {
       clearInterval(intervalId);
     }
@@ -94,6 +95,7 @@ function fixAudioIfNeeded(audioContext: AudioContext) {
 export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: string }) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const initalLoad = useRef(true);
+  const [audioWorking, setAudioWorking] = useState(false);
 
     useEffect(() => {
         if (!audioContextRef.current) {
@@ -134,8 +136,8 @@ export default function Sound({ crtEffect, text }: { crtEffect: boolean, text: s
 
     useEffect(() => {
       if (!audioContextRef.current) return;
-      fixAudioIfNeeded(audioContextRef.current);
+      fixAudioIfNeeded(audioContextRef.current, setAudioWorking);
     }, [audioContextRef.current]);
 
-  return null;
+  return audioWorking ? <Lofi /> : null;
 }
