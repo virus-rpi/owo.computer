@@ -1,36 +1,22 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# owo.computer
 
-## Getting Started
+owo.computer is my personal website. I made this because I bought the domain owo.computer and didn't put anything on the main page (just subdomains and email addresses) and i didnt wanna seem like a domain squatter or something so i quickly (2 days) put togeather this website. Another motive was that I wanted to become better at CSS. It cant really do much but it looks good (imo).  
 
-First, run the development server:
+Btw... FIREFOX PLEASE JUST IMPLEMENT MODER CSS STANDARDS!
+I had to write the CSS for the page basically twice because on Firefox it would look compleatly different than on Chromium based browsers.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **CRT Effect**: togglable with the "c" key
+- **Live generated crt static noise audio**: toggleble with the "m" key
+- **Lofi music** (i tried live generating this too but after researching music theory for a few hours i rememberd this was supposed to be a quick side project and just ended up using the Lofi-Girl Youtube livestream)
+- **Terminal emulater**: cuz why not (press "t" to access it or visit https://owo.computer/terminal)
+- **3d mode**: cuz why not (press "3" to access it or visit https://owo.computer/3d) website is still fully interactive in 3d mode
+- **Responsive design**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Screenshots
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+<img width="1871" height="959" alt="image" src="https://github.com/user-attachments/assets/8300924f-a133-436d-87d9-76217cf60bfe" />
+<img width="1871" height="959" alt="image" src="https://github.com/user-attachments/assets/0aa672e9-5d35-4c54-a2f6-099357cc9566" />
+<img width="1871" height="959" alt="image" src="https://github.com/user-attachments/assets/9e94dbe9-8a2b-4157-b2dd-e0f8d47f216a" />
+<img width="1871" height="959" alt="image" src="https://github.com/user-attachments/assets/b0cce3b5-c268-4d65-b730-79a95300bc89" />
